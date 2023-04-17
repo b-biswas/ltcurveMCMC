@@ -1,0 +1,47 @@
+
+import numpy as np
+import tensorflow_probability.substrates.jax as tfp
+from lcmcmc.parametric_fits import parametric_fn
+
+tfd = tfp.distributions
+#rng = jax.random.PRNGKey(0)
+
+# Disdistribution with interband correlations
+# TODO: find the actual correlation between the bands.
+
+def jd_model(index, x_range):
+
+    assert index.shape[0] == x_range.shape[0]
+
+    num_channel = np.unique(index[:, 1]).shape[0]
+    num_event = np.unique(index[:, 0]).shape[0]
+
+    @tfd.JointDistributionCoroutineAutoBatched
+    def current_event():
+        # define priors
+        t0_hyper = yield tfd.Sample(tfd.Uniform(-2, 2), (num_event), name="t0_hyper")
+        t0 = yield tfd.Sample(tfd.Uniform(t0_hyper-1, t0_hyper+1), (num_channel), name="t0")
+
+        t_rise_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 5), (num_event), name="t_rise_hyper")
+        t_rise = yield tfd.Sample(tfd.Uniform(t_rise_hyper_prior - t_rise_hyper_prior/4, t_rise_hyper_prior + t_rise_hyper_prior/4), (num_channel), name="t_rise")
+
+        t_fall_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 5), (num_event), name="t_fall_hyper_prior")
+        t_fall_= yield tfd.Sample(tfd.Uniform(t_fall_hyper_prior - t_fall_hyper_prior/4, t_fall_hyper_prior + t_fall_hyper_prior/4), (num_channel), name="t_fall_")
+        
+        t_fall = t_rise + t_fall_
+
+        amplitude = yield tfd.Sample(tfd.Gamma(10, 5), (num_event, num_channel), name="amp")
+        # evaluate the predictions
+        prediction = parametric_fn(
+            t0[index[:, 0], index[:, 1]],
+            t_rise[index[:, 0], index[:, 1]],
+            t_fall[index[:, 0], index[:, 1]],
+            amplitude[index[:, 0], index[:, 1]], 
+            x_range,
+        )
+
+        # Likelihood
+        sigma = yield tfd.Sample(tfd.Gamma(1, 1), len(index), name="sigma")
+        yield tfd.Normal(prediction, sigma, name="obs")
+
+    return current_event
