@@ -1,4 +1,5 @@
 
+import jax.numpy as jnp
 import numpy as np
 import tensorflow_probability.substrates.jax as tfp
 from lcmcmc.parametric_fits import parametric_fn
@@ -22,10 +23,10 @@ def jd_model(index, x_range):
         t0_hyper = yield tfd.Sample(tfd.Uniform(-2, 2), (num_event), name="t0_hyper")
         t0 = yield tfd.Sample(tfd.Uniform(t0_hyper-1, t0_hyper+1), (num_channel), name="t0")
 
-        t_rise_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 5), (num_event), name="t_rise_hyper")
+        t_rise_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 10), (num_event), name="t_rise_hyper")
         t_rise = yield tfd.Sample(tfd.Uniform(t_rise_hyper_prior - t_rise_hyper_prior/4, t_rise_hyper_prior + t_rise_hyper_prior/4), (num_channel), name="t_rise")
 
-        t_fall_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 5), (num_event), name="t_fall_hyper_prior")
+        t_fall_hyper_prior = yield tfd.Sample(tfd.Uniform(.25, 10), (num_event), name="t_fall_hyper_prior")
         t_fall_= yield tfd.Sample(tfd.Uniform(t_fall_hyper_prior - t_fall_hyper_prior/4, t_fall_hyper_prior + t_fall_hyper_prior/4), (num_channel), name="t_fall_")
         
         t_fall = t_rise + t_fall_
