@@ -2,7 +2,7 @@
 import jax.numpy as jnp
 import numpy as np
 import tensorflow_probability.substrates.jax as tfp
-from lcmcmc.parametric_fits import parametric_fn
+from lcmcmc.parametric_fits import parametric_fn, parametric_fn_pcs
 
 tfd = tfp.distributions
 #rng = jax.random.PRNGKey(0)
@@ -39,6 +39,46 @@ def jd_model(index, x_range):
             t_fall[index[:, 0], index[:, 1]],
             amplitude[index[:, 0], index[:, 1]], 
             x_range,
+        )
+
+        # Likelihood
+        sigma = yield tfd.Sample(tfd.Gamma(1, 1), len(index), name="sigma")
+        yield tfd.Normal(prediction, sigma, name="obs")
+
+    return current_event
+
+def jd_model_pcs(index, x_range, pcs):
+
+    assert index.shape[0] == x_range.shape[0]
+
+    positions = np.around(
+            (x_range).astype(float) / .25
+            + (400 - 1) / 2
+        )
+    positions = positions.astype(int)
+
+    num_channel = np.unique(index[:, 1]).shape[0]
+    num_event = np.unique(index[:, 0]).shape[0]
+
+    @tfd.JointDistributionCoroutineAutoBatched
+    def current_event():
+        # define priors
+        #c1 = yield tfd.Sample(tfd.Normal(1, .25), (num_event, num_channel), name="c1")
+
+        c2 = yield tfd.Sample(tfd.Normal(0, .1), (num_event, num_channel), name="c2")
+
+        c3 = yield tfd.Sample(tfd.Normal(0, .1), (num_event, num_channel), name="c3")
+        
+        c1_ = yield tfd.Sample(tfd.Uniform(.9, 1.5), (num_event, num_channel), name="c3_")
+        c1 = c1_ - c3 - c2
+
+        # evaluate the predictions
+        prediction = parametric_fn_pcs(
+            c1=c1[index[:, 0], index[:, 1]],
+            c2=c2[index[:, 0], index[:, 1]],
+            c3=c3[index[:, 0], index[:, 1]],
+            pcs=pcs,
+            positions=positions,
         )
 
         # Likelihood
