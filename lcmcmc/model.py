@@ -66,13 +66,13 @@ def jd_model_pcs(index, x_range, pcs):
         # c1 = yield tfd.Sample(tfd.Normal(1, .2), (num_event, num_channel), name="c1")
 
         c2_hyper = yield tfd.Sample(tfd.Normal(0, .05), (num_event), name="c2_hyper")
-        c2 = yield tfd.Sample(tfd.Normal(c2_hyper, .01), (num_channel), name="c2")
+        c2 = yield tfd.Sample(tfd.Normal(c2_hyper, .005), (num_channel), name="c2")
 
-        c3_hyper = yield tfd.Sample(tfd.Normal(0, .025), (num_event), name="c3_hyper")
-        c3 = yield tfd.Sample(tfd.Normal(c3_hyper, .01), (num_channel), name="c3")
-        
+        c3_hyper = yield tfd.Sample(tfd.Normal(0, .02), (num_event), name="c3_hyper")
+        c3 = yield tfd.Sample(tfd.Normal(c3_hyper, .005), (num_channel), name="c3")
+
         c1_hyper = yield tfd.Sample(tfd.Normal(1.2, .1), (num_event), name="c1_hyper")
-        c1_ = yield tfd.Sample(tfd.Normal(c1_hyper, .01), (num_channel), name="c1_")
+        c1_ = yield tfd.Sample(tfd.Normal(c1_hyper, .005), (num_channel), name="c1_")
 
         c1 = c1_ - c3 - c2
 
