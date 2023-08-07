@@ -47,40 +47,34 @@ def jd_model(index, x_range):
 
     return current_event
 
-def jd_model_pcs(index, x_range, pcs):
+def jd_model_pcs(index, x_range, pcs, mu, scale):
 
     assert index.shape[0] == x_range.shape[0]
 
-    positions = np.around(
+    positions = jnp.around(
             (x_range).astype(float) / .25
             + (400 - 1) / 2
         )
     positions = positions.astype(int)
 
-    num_channel = np.unique(index[:, 1]).shape[0]
-    num_event = np.unique(index[:, 0]).shape[0]
+    num_channel = jnp.unique(index[:, 1]).shape[0]
+    num_event = jnp.unique(index[:, 0]).shape[0]
 
     @tfd.JointDistributionCoroutineAutoBatched
     def current_event():
         # define priors
         # c1 = yield tfd.Sample(tfd.Normal(1, .2), (num_event, num_channel), name="c1")
 
-        c2_hyper = yield tfd.Sample(tfd.Normal(0, .1), (num_event), name="c2_hyper")
-        c2 = yield tfd.Sample(tfd.Normal(c2_hyper, .01), (num_channel), name="c2")
-
-        c3_hyper = yield tfd.Sample(tfd.Normal(0, .02), (num_event), name="c3_hyper")
-        c3 = yield tfd.Sample(tfd.Normal(c3_hyper, .01), (num_channel), name="c3")
-
-        c1_hyper = yield tfd.Sample(tfd.Uniform(.9, 1.2), (num_event), name="c1_hyper")
-        c1_ = yield tfd.Sample(tfd.Normal(c1_hyper, .01), (num_channel), name="c1_")
-
-        c1 = c1_ - c3 - c2
+        coeffs = yield tfd.Sample(tfd.MultivariateNormalTriL(
+                loc=mu,
+                scale_tril=scale,
+            ), num_event, name="coeffs")
 
         # evaluate the predictions
         prediction = parametric_fn_pcs(
-            c1=c1[index[:, 0], index[:, 1]],
-            c2=c2[index[:, 0], index[:, 1]],
-            c3=c3[index[:, 0], index[:, 1]],
+            c1=coeffs[index[:, 0], 0 + index[:, 1]*3],
+            c2=coeffs[index[:, 0], 1 + index[:, 1]*3],
+            c3=coeffs[index[:, 0], 2 + index[:, 1]*3],
             pcs=pcs,
             positions=positions,
         )
