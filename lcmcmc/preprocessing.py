@@ -56,6 +56,7 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
             max_flux_values = []
             object_index = []
             current_SNID= []
+            max_flux_time_values=[]
 
             #print(object_df)
             for band in bands:
@@ -65,8 +66,6 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
                 
                     max_flux_loc = np.argmax(band_df["FLUXCAL"])
                     max_flux = band_df['FLUXCAL'].iloc[max_flux_loc]
-                    if max_flux<200:
-                        continue
                     max_flux_time = band_df['MJD'].iloc[max_flux_loc]
                     
                     new_time.extend(band_df['MJD'] - max_flux_time)
@@ -79,6 +78,7 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
                     current_SNID.extend(band_df["SNID"].values)
 
                     max_flux_values.append(max_flux)
+                    max_flux_time_values.append(max_flux_time)
                 
             current_object_new_df = {}
             current_object_new_df['SNID'] = np.array(current_SNID)
@@ -89,6 +89,7 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
             current_object_new_df['band_index'] = np.array(band_index)
             
             current_object_new_df['norm_factor'] = [max_flux_values]*len(band_index)
+            current_object_new_df['max_time'] = [max_flux_time_values]*len(band_index)
 
             current_object_new_df = pd.DataFrame.from_dict(current_object_new_df)
             new_object_dfs.append(current_object_new_df)

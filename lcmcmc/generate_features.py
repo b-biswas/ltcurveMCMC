@@ -1,0 +1,158 @@
+import sys 
+import os
+import pandas as pd
+import numpy as np
+import jax
+import jax.numpy as jnp
+import tensorflow as tf
+import tensorflow_probability.substrates.jax as tfp
+from astropy.table import Table
+
+tfd = tfp.distributions
+rng = jax.random.PRNGKey(0)
+
+from lcmcmc.preprocessing import add_object_band_index, preprocess_SNANA, extract_subsample
+from lcmcmc.utils import get_data_dir_path
+from lcmcmc.model import jd_model_pcs
+
+from kndetect.utils import load_pcs
+
+training_or_test = sys.argv[1]
+
+if training_or_test not in ['train', 'test']:
+    raise ValueError("First argument should be either train or test")
+
+data_head_path = f'/sps/lsst/users/bbiswas/data/kilonova_datasets/{training_or_test}_final_master_HEAD.FITS'
+data_phot_path = f'/sps/lsst/users/bbiswas/data/kilonova_datasets/{training_or_test}_final_master_PHOT.FITS'
+
+df_head = Table.read(data_head_path, format='fits').to_pandas()
+df_phot = Table.read(data_phot_path, format='fits').to_pandas()
+
+pcs = load_pcs()
+
+mu_kn = np.load(os.path.join(get_data_dir_path(), "mu_kn.npy"))
+scale_kn = np.load(os.path.join(get_data_dir_path(), "scale_kn.npy"))
+
+# mu_non_kn = np.load(os.path.join(get_data_dir_path(), "mu_non_kn.npy"))
+# scale_non_kn = np.load(os.path.join(get_data_dir_path(), "scale_non_kn.npy"))
+
+print(jax.devices())
+
+def return_data_loglike(mcmc_sample, obs, sigma, pinned_jd):
+    dists, _ = pinned_jd.distribution.sample_distributions(seed=rng, value=mcmc_sample)
+    return {'data_value': dists.obs.log_prob(obs)}
+
+@jax.jit
+def run_mcmc_sampling(index, x_range, pcs, mu, scale, observed_sigma, observed_value, rng):
+    jd = jd_model_pcs(index, x_range, pcs, mu, scale)
+    pinned_jd = jd.experimental_pin(sigma=observed_sigma, obs=observed_value)
+    
+    # Run the mcmc
+    run_mcmc = jax.jit(
+        lambda seed: tfp.experimental.mcmc.windowed_adaptive_nuts(
+            500, 
+            pinned_jd, 
+            n_chains=4, 
+            seed=seed,
+        )
+    )
+
+    rng, sample_rng = jax.random.split(rng, 2)
+    mcmc_samples, sampler_stats = run_mcmc(sample_rng)
+
+    data_likelihood = jax.vmap(jax.vmap(lambda x: return_data_loglike(x, observed_value, observed_sigma, pinned_jd)))(mcmc_samples)
+
+    return mcmc_samples, sampler_stats, data_likelihood
+
+pd.options.mode.chained_assignment = None 
+mcmc_samples_kn_prior=[]
+data_likelihood_list = []
+snid_list=[]
+sampler_stats_list_kn = []
+
+norm_factor_list=[]
+max_flux_date_list = []
+compare_res = []
+
+df_head = df_head.sample(100)
+
+for snid in df_head["SNID"].values:
+# for snid in kn_snids[:3]:  
+    print(f"SNID {snid}")
+    
+    compare_dict = {}
+
+    current_df = df_phot[df_phot["SNID"] == snid]
+    current_df = add_object_band_index(current_df, bands=[b'g', b'r'])
+    
+    current_df_head = df_head[df_head["SNID"]==snid]
+    
+    detection_points = current_df[(current_df["PHOTFLAG"] == 4096) | (current_df["PHOTFLAG"] == 999999)]
+    max_snr_loc = np.argmax(detection_points["FLUXCAL"].values/detection_points["FLUXCALERR"].values)
+    max_snr_date = detection_points["MJD"].values[max_snr_loc]
+    
+    current_df = current_df[(current_df["MJD"]>= (max_snr_date - 10)) & (current_df["MJD"]<= (max_snr_date +20))]
+
+    normed_current_df = preprocess_SNANA(df_head=current_df_head, df_phot=current_df, bands=[b'g', b'r'], norm_band_index=None)
+    
+    index = np.zeros((len(normed_current_df), 2), dtype=np.int32)
+
+    index[:, 0] = np.asarray(normed_current_df["object_index"].values)
+    index[:, 1] = np.asarray(normed_current_df["band_index"].values)
+
+    x_range = jnp.asarray(normed_current_df["time"])
+
+    observed_value = jnp.array(np.asarray(normed_current_df["flux"]), dtype=jnp.float32)
+    observed_sigma = jnp.array(np.asarray(normed_current_df["fluxerr"]), dtype=jnp.float32)
+
+    # use KN prior 
+     
+    mcmc_samples, sampler_stats, data_likelihood = run_mcmc_sampling(
+        index=index, 
+        x_range=x_range, 
+        pcs=pcs, 
+        mu=mu_kn, 
+        scale=scale_kn, 
+        observed_sigma=observed_sigma, 
+        observed_value=observed_value,
+        rng=rng,
+    )
+
+    sampler_stats_list_kn.append(sampler_stats)
+    mcmc_samples_kn_prior.append(mcmc_samples[0])
+    data_likelihood_list.append(data_likelihood)
+
+    # use non-KN prior 
+#     pinned_jd, mcmc_samples, sampler_stats, compare_data = run_mcmc_sampling(
+#         index=index, 
+#         x_range=x_range, 
+#         pcs=pcs, 
+#         mu=mu_non_kn, 
+#         scale=scale_non_kn, 
+#         observed_sigma=observed_sigma, 
+#         observed_value=observed_value,
+#         rng=rng,
+#     ) 
+
+    
+#     compare_dict["model_non_kn"] = compare_data
+#     compare_res.append(compare_dict)
+#     mcmc_samples_non_kn_prior.append(mcmc_samples[0])
+#     sampler_stats_list_non_kn.append(sampler_stats)
+    
+    snid_list.append(snid)
+    norm_factor_list.append(normed_current_df['norm_factor'][0])
+    max_flux_date_list.append(normed_current_df['max_time'][0])
+
+
+mcmc_samples_df = pd.DataFrame(
+    {
+        'SNID': snid_list, 
+        'MCMC_samples_kn': mcmc_samples_kn_prior, 
+        'norm_factor': norm_factor_list , 
+        'sampler_stats_kn': sampler_stats_list_kn, 
+        'max_time':max_flux_date_list,
+        'data-likelihood': data_likelihood_list
+    }
+)
+mcmc_samples_df.to_pickle(f"{training_or_test}_data.pkl")
