@@ -1,5 +1,16 @@
 import numpy as np
 import pandas as pd
+import jax 
+import jax.numpy as jnp
+
+@jax.jit
+def normalize_mjd(mjd, max_flux_time):
+    return mjd - max_flux_time
+
+@jax.jit
+def normalize_flux(flux, max_flux):
+    return flux/max_flux
+
 
 def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
     """Convert from SNANA format to MCMC
@@ -17,6 +28,8 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
         datafarme in the format supported for MCMC sampling
     """
     new_object_dfs = []
+
+    current_object_new_df = {}
 
     if norm_band_index in [0, 1]:
         for object_id in df_head['SNID']:
@@ -46,59 +59,53 @@ def preprocess_SNANA(df_head, df_phot, bands=['g','r'], norm_band_index=None):
             new_object_dfs.append(current_object_new_df)
 
     elif norm_band_index is None:
-        for object_id in df_head['SNID']:
 
-            object_df = df_phot[df_phot["SNID"] == object_id]
-            new_time = []
-            new_flux = []
-            new_flux_err = []
-            band_index = []
-            max_flux_values = []
-            object_index = []
-            current_SNID= []
-            max_flux_time_values=[]
+        new_time = []
+        new_flux = []
+        new_flux_err = []
+        band_index = []
+        max_flux_values = []
+        object_index = []
+        current_SNID= []
+        max_flux_time_values=[]
 
-            #print(object_df)
-            for band in bands:
-                band_df = object_df[object_df['FLT'] == band]
+        #print(object_df)
+        for band in bands:
+            band_df = df_phot[df_phot['FLT'] == band]
 
-                if len(band_df)>0:
-                
-                    max_flux_loc = np.argmax(band_df["FLUXCAL"])
-                    max_flux = band_df['FLUXCAL'].iloc[max_flux_loc]
-                    max_flux_time = band_df['MJD'].iloc[max_flux_loc]
-                    
-                    new_time.extend(band_df['MJD'] - max_flux_time)
-                    new_flux.extend(band_df['FLUXCAL'] / max_flux)
-                    new_flux_err.extend(band_df['FLUXCALERR'] / max_flux)
-
-                    band_index.extend(band_df['band_index'].values)
-                    object_index.extend(band_df['object_index'].values)
-
-                    current_SNID.extend(band_df["SNID"].values)
-
-                    max_flux_values.append(max_flux)
-                    max_flux_time_values.append(max_flux_time)
-                
-            current_object_new_df = {}
-            current_object_new_df['SNID'] = np.array(current_SNID)
-            current_object_new_df['time'] = np.array(new_time)
-            current_object_new_df['flux'] = np.array(new_flux)
-            current_object_new_df['fluxerr'] = np.array(new_flux_err)
-            current_object_new_df['object_index'] = np.array(object_index)
-            current_object_new_df['band_index'] = np.array(band_index)
+            if len(band_df)>0:
             
-            current_object_new_df['norm_factor'] = [max_flux_values]*len(band_index)
-            current_object_new_df['max_time'] = [max_flux_time_values]*len(band_index)
+                max_flux_loc = np.argmax(band_df["FLUXCAL"])
+                max_flux = band_df['FLUXCAL'].iloc[max_flux_loc]
+                max_flux_time = band_df['MJD'].iloc[max_flux_loc]
+                
+                new_time.extend(normalize_mjd(band_df['MJD'].values, max_flux_time))
+                new_flux.extend(normalize_flux(band_df['FLUXCAL'].values, max_flux))
+                new_flux_err.extend(normalize_flux(band_df['FLUXCALERR'].values, max_flux))
 
-            current_object_new_df = pd.DataFrame.from_dict(current_object_new_df)
-            new_object_dfs.append(current_object_new_df)
+                band_index.extend(band_df['band_index'].values)
+
+                current_SNID.extend(band_df["SNID"].values)
+
+                max_flux_values.append(max_flux)
+                max_flux_time_values.append(max_flux_time)
+            else:
+                max_flux_values.append(0)
+            
+        
+        current_object_new_df['SNID'] = jnp.array(current_SNID)
+        current_object_new_df['time'] = jnp.array(new_time)
+        current_object_new_df['flux'] = jnp.array(new_flux)
+        current_object_new_df['fluxerr'] = jnp.array(new_flux_err)
+        current_object_new_df['band_index'] = jnp.array(band_index)
+        
+        current_object_new_df['norm_factor'] = [max_flux_values]*len(band_index)
+        current_object_new_df['max_time'] = [max_flux_time_values]*len(band_index)
+
     else:
         raise ValueError("the norm must be either 0, 1 or None")
 
-    mcmc_format_df = pd.concat(new_object_dfs, axis=0, ignore_index=True)
-
-    return mcmc_format_df
+    return current_object_new_df
 
 def add_object_band_index(df_phot, bands=['g','r']):
     """Add the object and band index to photometric dataframe
@@ -113,26 +120,9 @@ def add_object_band_index(df_phot, bands=['g','r']):
     df_phot: pd.DataFrame
         updated photometry file
     """
-    object_index = []
-    last_object = 0
-    count = 0
 
-    for i in range(len(df_phot)):
-
-        if i == 0:
-            last_object = df_phot['SNID'].iloc[0]
-
-        if df_phot['SNID'].iloc[i] == last_object:
-            object_index.append(count)
-
-        else:
-            last_object = df_phot['SNID'].iloc[i]
-            count = count+1
-            object_index.append(count)
-    
     band_index = (df_phot['FLT'] == bands[1]).values*1
 
-    df_phot["object_index"] = object_index
     df_phot["band_index"] = band_index
 
     return df_phot
