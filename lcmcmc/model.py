@@ -59,8 +59,6 @@ def jd_model_pcs(index, x_range, pcs, mu_kn, scale_kn):
 
     # num_channel = np.unique(index[:, 1]).shape[0]
     # num_event = np.unique(index[:, 0]).shape[0]
-    num_channel = 2
-    num_event = 1
 
     @tfd.JointDistributionCoroutineAutoBatched
     def current_event():
@@ -70,13 +68,13 @@ def jd_model_pcs(index, x_range, pcs, mu_kn, scale_kn):
         coeffs = yield tfd.Sample(tfd.MultivariateNormalTriL(
                 loc=mu_kn,
                 scale_tril=scale_kn,
-            ), num_event, name="coeffs")
+            ), name="coeffs")
 
         # evaluate the predictions
         prediction = parametric_fn_pcs(
-            c1=coeffs[index[:, 0], 0 + index[:, 1]],
-            c2=coeffs[index[:, 0], 1 + index[:, 1]],
-            c3=coeffs[index[:, 0], 2 + index[:, 1]],
+            c1=coeffs[0 + index[:]],
+            c2=coeffs[1 + index[:]],
+            c3=coeffs[2 + index[:]],
             pcs=pcs,
             positions=positions,
         )
