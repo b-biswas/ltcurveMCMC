@@ -1,21 +1,26 @@
+import logging
 import sys 
 import os
 import pandas as pd
 import numpy as np
 import jax
 import jax.numpy as jnp
-import tensorflow as tf
 import tensorflow_probability.substrates.jax as tfp
 from astropy.table import Table
-
-tfd = tfp.distributions
-rng = jax.random.PRNGKey(0)
 
 from lcmcmc.preprocessing import add_object_band_index, preprocess_SNANA, extract_subsample
 from lcmcmc.utils import get_data_dir_path
 from lcmcmc.model import jd_model_pcs
 
 from kndetect.utils import load_pcs
+
+tfd = tfp.distributions
+
+# logging level set to INFO
+logging.basicConfig(format="%(message)s", level=logging.INFO)
+LOG = logging.getLogger(__name__)
+
+rng = jax.random.PRNGKey(0)
 
 training_or_test = sys.argv[1]
 
@@ -74,47 +79,47 @@ norm_factor_list=[]
 max_flux_date_list = []
 compare_res = []
 
-df_head = df_head.sample(100)
+@jax.jit
+def compute_snr(flux, fluxerr):
+    return flux/fluxerr
 
-for snid in df_head["SNID"].values:
+for object_num, snid in enumerate(df_head["SNID"].values):
 # for snid in kn_snids[:3]:  
-    print(f"SNID {snid}")
+    LOG.info(f"SNID {snid}")
     
     compare_dict = {}
 
     current_df = df_phot[df_phot["SNID"] == snid]
-    current_df = add_object_band_index(current_df, bands=[b'g', b'r'])
-    
+
     current_df_head = df_head[df_head["SNID"]==snid]
     
     detection_points = current_df[(current_df["PHOTFLAG"] == 4096) | (current_df["PHOTFLAG"] == 999999)]
-    max_snr_loc = np.argmax(detection_points["FLUXCAL"].values/detection_points["FLUXCALERR"].values)
+
+    max_snr_loc = jnp.argmax(compute_snr(detection_points["FLUXCAL"].values, detection_points["FLUXCALERR"].values))
     max_snr_date = detection_points["MJD"].values[max_snr_loc]
     
-    current_df = current_df[(current_df["MJD"]>= (max_snr_date - 10)) & (current_df["MJD"]<= (max_snr_date +20))]
+    current_df = current_df[(current_df["MJD"]>=(max_snr_date-10)) & (current_df["MJD"]<= (max_snr_date+20))]
+    current_df = add_object_band_index(current_df, bands=[b'g', b'r'])
 
     normed_current_df = preprocess_SNANA(df_head=current_df_head, df_phot=current_df, bands=[b'g', b'r'], norm_band_index=None)
-    
-    index = np.zeros((len(normed_current_df), 2), dtype=np.int32)
 
-    index[:, 0] = np.asarray(normed_current_df["object_index"].values)
-    index[:, 1] = np.asarray(normed_current_df["band_index"].values)
+    band_index = normed_current_df["band_index"]
 
-    x_range = jnp.asarray(normed_current_df["time"])
+    # x_range = jnp.asarray(normed_current_df["time"])
 
-    observed_value = jnp.array(np.asarray(normed_current_df["flux"]), dtype=jnp.float32)
-    observed_sigma = jnp.array(np.asarray(normed_current_df["fluxerr"]), dtype=jnp.float32)
+    # observed_value = jnp.array(np.asarray(normed_current_df["flux"]), dtype=jnp.float32)
+    # observed_sigma = jnp.array(np.asarray(normed_current_df["fluxerr"]), dtype=jnp.float32)
 
     # use KN prior 
      
     mcmc_samples, sampler_stats, data_likelihood = run_mcmc_sampling(
-        index=index, 
-        x_range=x_range, 
+        index=band_index, 
+        x_range=normed_current_df["time"], 
         pcs=pcs, 
         mu=mu_kn, 
         scale=scale_kn, 
-        observed_sigma=observed_sigma, 
-        observed_value=observed_value,
+        observed_sigma=normed_current_df["fluxerr"], 
+        observed_value=normed_current_df["flux"],
         rng=rng,
     )
 
@@ -144,6 +149,30 @@ for snid in df_head["SNID"].values:
     norm_factor_list.append(normed_current_df['norm_factor'][0])
     max_flux_date_list.append(normed_current_df['max_time'][0])
 
+    if (object_num+1)%500 == 0: 
+
+
+        mcmc_samples_df = pd.DataFrame(
+            {
+                'SNID': snid_list, 
+                'MCMC_samples_kn': mcmc_samples_kn_prior, 
+                'norm_factor': norm_factor_list , 
+                'sampler_stats_kn': sampler_stats_list_kn, 
+                'max_time':max_flux_date_list,
+                'data-likelihood': data_likelihood_list
+            }
+        )
+        save_path = os.path.join(get_data_dir_path(), training_or_test, f"{training_or_test}_{int(object_num/500)}_data.pkl")
+        mcmc_samples_df.to_pickle(save_path)
+
+        mcmc_samples_kn_prior=[]
+        data_likelihood_list = []
+        snid_list=[]
+        sampler_stats_list_kn = []
+
+        norm_factor_list=[]
+        max_flux_date_list = []
+        compare_res = []
 
 mcmc_samples_df = pd.DataFrame(
     {
@@ -155,4 +184,5 @@ mcmc_samples_df = pd.DataFrame(
         'data-likelihood': data_likelihood_list
     }
 )
-mcmc_samples_df.to_pickle(f"{training_or_test}_data.pkl")
+save_path = os.path.join(get_data_dir_path(), training_or_test, f"{training_or_test}_{int(object_num/500)}_data.pkl")
+mcmc_samples_df.to_pickle(save_path)
