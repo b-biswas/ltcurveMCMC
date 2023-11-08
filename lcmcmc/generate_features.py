@@ -1,6 +1,8 @@
 import logging
 import sys 
 import os
+import time
+
 import pandas as pd
 import numpy as np
 import jax
@@ -83,9 +85,12 @@ compare_res = []
 def compute_snr(flux, fluxerr):
     return flux/fluxerr
 
+start = time.time()
+
+total_time = 0
+
 for object_num, snid in enumerate(df_head["SNID"].values):
 # for snid in kn_snids[:3]:  
-    LOG.info(f"SNID {snid}")
     
     compare_dict = {}
 
@@ -133,6 +138,9 @@ for object_num, snid in enumerate(df_head["SNID"].values):
 
     if (object_num+1)%500 == 0: 
 
+        end = time.time()
+        LOG.info(f"time for 500 events: {end - start}")
+        total_time += end - start
 
         mcmc_samples_df = pd.DataFrame(
             {
@@ -155,7 +163,9 @@ for object_num, snid in enumerate(df_head["SNID"].values):
         norm_factor_list=[]
         max_flux_date_list = []
         compare_res = []
+        start = time.time()
 
+LOG.info(f"total time taken : {total_time}")
 mcmc_samples_df = pd.DataFrame(
     {
         'SNID': snid_list, 
