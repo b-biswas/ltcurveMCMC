@@ -47,7 +47,7 @@ def jd_model(index, x_range):
 
     return current_event
 
-def jd_model_pcs(index, x_range, pcs, mu_kn, scale_kn, mu_non_kn, scale_non_kn):
+def jd_model_pcs(index, x_range, pcs, mu_kn, scale_kn):
 
     assert index.shape[0] == x_range.shape[0]
 
@@ -57,45 +57,32 @@ def jd_model_pcs(index, x_range, pcs, mu_kn, scale_kn, mu_non_kn, scale_non_kn):
         )
     positions = positions.astype(int)
 
-    num_channel = jnp.unique(index[:, 1]).shape[0]
-    num_event = jnp.unique(index[:, 0]).shape[0]
+    # num_channel = np.unique(index[:, 1]).shape[0]
+    # num_event = np.unique(index[:, 0]).shape[0]
 
     @tfd.JointDistributionCoroutineAutoBatched
     def current_event():
         # define priors
         # c1 = yield tfd.Sample(tfd.Normal(1, .2), (num_event, num_channel), name="c1")
 
-        coeffs_kn = yield tfd.Sample(tfd.MultivariateNormalTriL(
+        coeffs = yield tfd.Sample(tfd.MultivariateNormalTriL(
                 loc=mu_kn,
                 scale_tril=scale_kn,
-            ), num_event, name="coeffs_kn")
-
-        coeffs_non_kn = yield tfd.Sample(tfd.MultivariateNormalTriL(
-                loc=mu_non_kn,
-                scale_tril=scale_non_kn,
-            ), num_event, name="coeffs_non_kn")
+            ), name="coeffs")
 
         # evaluate the predictions
-        prediction_kn = parametric_fn_pcs(
-            c1=coeffs_kn[index[:, 0], 0 + index[:, 1]*3],
-            c2=coeffs_kn[index[:, 0], 1 + index[:, 1]*3],
-            c3=coeffs_kn[index[:, 0], 2 + index[:, 1]*3],
+        prediction = parametric_fn_pcs(
+            c1=coeffs[0 + index[:]],
+            c2=coeffs[1 + index[:]],
+            c3=coeffs[2 + index[:]],
             pcs=pcs,
             positions=positions,
         )
 
-        prediction_non_kn = parametric_fn_pcs(
-            c1=coeffs_non_kn[index[:, 0], 0 + index[:, 1]*3],
-            c2=coeffs_non_kn[index[:, 0], 1 + index[:, 1]*3],
-            c3=coeffs_non_kn[index[:, 0], 2 + index[:, 1]*3],
-            pcs=pcs,
-            positions=positions,
-        )
 
         # Likelihood
         sigma = yield tfd.Sample(tfd.Gamma(1, 1), len(index), name="sigma")
 
-        yield tfd.Normal(prediction_kn, sigma, name="obs_kn")
-        yield tfd.Normal(prediction_non_kn, sigma, name="obs_non_kn")
+        yield tfd.Normal(prediction, sigma, name="obs")
 
     return current_event
