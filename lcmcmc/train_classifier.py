@@ -2,12 +2,18 @@ import logging
 import os
 import pandas as pd
 import numpy as np
+import time
 
 from astropy.table import Table
 
 from lcmcmc.utils import get_data_dir_path
 from kndetect.utils import load_pcs
 from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+
+from joblib import dump
+
 
 # logging level set to INFO
 logging.basicConfig(format="%(message)s", level=logging.INFO)
@@ -77,10 +83,8 @@ train_features_df = get_features_df("train")
 
 print(train_features_df.columns)
 
-train_features_df = train_features_df.groupby("type").sample(50000)
+train_features_df = train_features_df.groupby("type").sample(100000)
 test_features_df = get_features_df("test")
-
-rf = RandomForestClassifier(n_estimators=30, max_depth=42)
 
 features_col_names = [] 
 
@@ -91,17 +95,49 @@ features_col_names.append("likelihood")
 features_col_names.append("g_norm")
 features_col_names.append("r_norm")
 
-rf.fit(train_features_df[features_col_names], train_features_df["type"])
+classifiers = ['XGBoost', 'RF']
 
-probabilities = rf.predict_proba(test_features_df[features_col_names])
-kne_prob = probabilities.T[1]
+for classifier in classifiers:
 
-save_scores ={}
-save_scores["SNID"] = test_features_df["SNID"]
-save_scores["KNe_prob"] = kne_prob
-save_scores["SNTYPE"] = test_features_df["type"]
+    if classifier == 'RF':
+        clf = RandomForestClassifier(n_estimators=30, max_depth=42)
+    if classifier == 'SVM':
+        clf = SVC(probability=True)
+    if classifier=='XGBoost':
+        clf = XGBClassifier(n_estimators=30, max_depth=42)
 
-save_scores=pd.DataFrame(save_scores)
+    clf.fit(train_features_df[features_col_names], train_features_df["type"])
 
-save_scores.to_pickle(os.path.join(get_data_dir_path(), "predicted_scores.pkl"))
+    LOG.info(f"Trained {classifier} classifier")
+
+    train_probabilities = clf.predict_proba(train_features_df[features_col_names])
+    train_kne_prob = train_probabilities.T[1]
+
+    start = time.time() 
+    test_probabilities = clf.predict_proba(test_features_df[features_col_names])
+    test_kne_prob = test_probabilities.T[1]
+    end = time.time()
+    LOG.info(f"Time taken by {classifier}: {end-start}")
+
+    dump(clf, os.path.join(get_data_dir_path(), f'{classifier}.joblib'))
+    
+
+   
+    train_save_scores ={}
+    train_save_scores["SNID"] = train_features_df["SNID"]
+    train_save_scores["KNe_prob"] = train_kne_prob
+    train_save_scores["SNTYPE"] = train_features_df["type"]
+
+    save_scores=pd.DataFrame(train_save_scores)
+
+    save_scores.to_pickle(os.path.join(get_data_dir_path(), f"train_predicted_scores_{classifier}.pkl"))
+
+    test_save_scores ={}
+    test_save_scores["SNID"] = test_features_df["SNID"]
+    test_save_scores["KNe_prob"] = test_kne_prob
+    test_save_scores["SNTYPE"] = test_features_df["type"]
+
+    test_save_scores=pd.DataFrame(test_save_scores)
+
+    test_save_scores.to_pickle(os.path.join(get_data_dir_path(), f"test_predicted_scores_{classifier}.pkl"))
 
