@@ -126,24 +126,6 @@ for object_num, snid in enumerate(df_head["SNID"].values):
     sampler_stats_list_kn.append(sampler_stats)
     mcmc_samples_kn_prior.append(mcmc_samples[0])
     data_likelihood_list.append(data_likelihood)
-
-    # use non-KN prior 
-#     pinned_jd, mcmc_samples, sampler_stats, compare_data = run_mcmc_sampling(
-#         index=index, 
-#         x_range=x_range, 
-#         pcs=pcs, 
-#         mu=mu_non_kn, 
-#         scale=scale_non_kn, 
-#         observed_sigma=observed_sigma, 
-#         observed_value=observed_value,
-#         rng=rng,
-#     ) 
-
-    
-#     compare_dict["model_non_kn"] = compare_data
-#     compare_res.append(compare_dict)
-#     mcmc_samples_non_kn_prior.append(mcmc_samples[0])
-#     sampler_stats_list_non_kn.append(sampler_stats)
     
     snid_list.append(snid)
     norm_factor_list.append(normed_current_df['norm_factor'][0])
